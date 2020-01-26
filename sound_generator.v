@@ -83,6 +83,79 @@ module sound_generator(clk, reset, spkr,
 
 endmodule
 
+
+module sound_rom(input clk,
+	   input 	reset,
+           input [10:0] a,
+	   output [7:0] dout,
+	   input 	cs_n);
+
+   reg [7:0] q;
+   
+always @(posedge clk or posedge reset)
+  if (reset)
+    q = 0;
+  else
+//`include "../roms/extract/rom_code_case.v"
+`include "dk_wave.v"
+
+  assign dout = q;
+
+`ifdef debug_rom
+   always @(a)   
+     if (cs_n == 0)
+       $display("rom: rom[%x] -> %x", a, q);
+`endif
+   
+endmodule // rom
+
+module wav_player(
+    input CLK,
+    input switch_play,
+  output reg  audio_out,
+  output reg [10:0]rom_a,
+  input [7:0]rom_d
+    );
+
+wire s_start=switch_play;
+
+reg play = 0;
+reg [5:0] prescaler; 
+reg [7:0] counter;
+  reg [10:0] address;
+reg [7:0] value;
+
+always @(posedge CLK)
+begin
+  if (play)
+  begin
+    prescaler <= prescaler + 1;
+    if (prescaler == 24)  // 8kHz x 256 steps = 2.048 MHz
+    begin
+      prescaler <= 0;
+      counter <= counter + 1;
+      rom_a<=address;
+      value <= rom_d;
+      audio_out <= (value > counter);
+      if (counter == 255)
+      begin
+        address <= address + 1;
+        if (address == 11'h7ff)
+        begin
+          play <= 0;
+          address <= 0;
+        end			 
+      end		
+    end
+  end
+  if (s_start)
+  begin
+    play <= 1;
+  end	 
+end
+
+
+endmodule
 module test_snchip_top(clk, reset, hsync, vsync, rgb, spkr);
 
   input clk, reset;
@@ -96,6 +169,22 @@ module test_snchip_top(clk, reset, hsync, vsync, rgb, spkr);
   assign vsync = 0;
   assign rgb = {spkr,1'b0,1'b0};
   
+  wire [10:0] rom_a;
+  wire [7:0] rom_d;
+  sound_rom sound_rom( .clk(clk),
+             .reset(reset),
+             .a(rom_a),
+             .dout(rom_d),
+	   1'b0);
+   wav_player wav(
+     .CLK(clk),
+     .switch_play(1'b1),
+     .audio_out(spkr),
+     .rom_a(rom_a),
+     .rom_d(rom_d)
+    );
+  
+  /*
   sound_generator sndgen(
     .clk(clk),
     .reset(reset),
@@ -108,5 +197,6 @@ module test_snchip_top(clk, reset, hsync, vsync, rgb, spkr);
     .lfo_shift(1),
     .mixer(3)
   );
+  */
 
 endmodule
